@@ -34,8 +34,18 @@ ARGS:
 
 ## Sample
 
-```bash
-wcrs ./src/main.rs
-```
+### default
 
 ![default](./imgs/default.png)
+
+### disable color
+
+![no_color](./imgs/no_color.png)
+
+### no column sep
+
+![no_sep](./imgs/no_sep.png)
+
+### no decorators
+
+![pure](./imgs/pure.png)
