@@ -4,7 +4,23 @@ use std::io::Read;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-#[derive(StructOpt, Debug)]
+fn pure_format() -> format::TableFormat {
+    format::FormatBuilder::new()
+        .column_separator(' ')
+        .borders(' ')
+        .separators(
+            &[format::LinePosition::Top, format::LinePosition::Bottom],
+            format::LineSeparator::new(' ', ' ', ' ', ' '),
+        )
+        .padding(1, 1)
+        .build()
+}
+
+fn no_sep_format() -> format::TableFormat {
+    *format::consts::FORMAT_NO_COLSEP
+}
+
+#[derive(StructOpt, Debug, Clone)]
 #[structopt(
     name = "wc.rs",
     version = "0.1.0",
@@ -16,9 +32,17 @@ struct Opts {
     #[structopt(long)]
     no_color: bool,
 
-    /// Disable colorful output
+    /// Disable sep in output
     #[structopt(long)]
     no_sep: bool,
+
+    /// Use pure mode
+    #[structopt(long)]
+    pure: bool,
+
+    /// Do not show headers
+    #[structopt(long)]
+    no_headers: bool,
 
     /// Prints the new line counts
     #[structopt(short, long)]
@@ -37,6 +61,16 @@ struct Opts {
     files: Vec<PathBuf>,
 }
 
+impl Opts {
+    fn turn_over_output_opts(&mut self) {
+        if !(self.lines || self.words || self.chars) {
+            self.lines = true;
+            self.words = true;
+            self.chars = true;
+        }
+    }
+}
+
 #[derive(Debug)]
 struct FileStats {
     name: PathBuf,
@@ -50,15 +84,13 @@ struct WcStats {
     stats: Vec<FileStats>,
     number_of_files: usize,
     total: FileStats,
-    color_flag: bool,
-    sep_flat: bool,
-    line_flag: bool,
-    word_flag: bool,
-    char_flag: bool,
+    opts: Opts,
 }
 
 impl WcStats {
-    fn new() -> WcStats {
+    fn new(opts: &Opts) -> WcStats {
+        let mut new_opts = opts.clone();
+        new_opts.turn_over_output_opts();
         WcStats {
             stats: Vec::new(),
             number_of_files: 0,
@@ -68,25 +100,7 @@ impl WcStats {
                 words: 0,
                 characters: 0,
             },
-            color_flag: true,
-            sep_flat: true,
-            line_flag: false,
-            word_flag: false,
-            char_flag: false,
-        }
-    }
-
-    fn get_flag_from_opts(&mut self, opts: &Opts) {
-        self.color_flag = !opts.no_color;
-        self.sep_flat = !opts.no_sep;
-        if !(opts.words || opts.lines || opts.chars) {
-            self.line_flag = true;
-            self.word_flag = true;
-            self.char_flag = true;
-        } else {
-            self.line_flag = opts.lines;
-            self.word_flag = opts.words;
-            self.char_flag = opts.chars;
+            opts: new_opts,
         }
     }
 
@@ -120,74 +134,83 @@ impl WcStats {
         }
     }
 
-    fn print_to_console(self) {
+    fn format_table(&self) -> Table {
         let mut tb = Table::new();
-        if !self.sep_flat {
-            tb.set_format(*format::consts::FORMAT_NO_COLSEP);
+        if self.opts.pure {
+            tb.set_format(pure_format())
+        } else if self.opts.no_sep {
+            tb.set_format(no_sep_format())
         }
-        let mut headers = vec![];
-        if self.line_flag {
-            headers.push("lines");
-        }
-        if self.word_flag {
-            headers.push("words");
-        }
-        if self.char_flag {
-            headers.push("charactors");
-        }
-        headers.push("file");
-        if self.color_flag {
-            let headers: Vec<Cell> = headers
-                .iter()
-                .map(|h| {
-                    Cell::new(h)
-                        .with_style(Attr::Bold)
-                        .with_style(Attr::ForegroundColor(color::BLUE))
-                })
-                .collect();
-            tb.set_titles(Row::new(headers));
-        } else {
-            let headers: Vec<Cell> = headers.iter().map(|h| Cell::new(h)).collect();
-            tb.set_titles(Row::new(headers));
-        }
+        if !self.opts.no_headers {
+            let mut headers = vec![];
+            if self.opts.lines {
+                headers.push("lines");
+            }
+            if self.opts.words {
+                headers.push("words");
+            }
+            if self.opts.chars {
+                headers.push("charactors");
+            }
+            headers.push("file");
+            if self.opts.no_color {
+                let headers: Vec<Cell> = headers.iter().map(|h| Cell::new(h)).collect();
+                tb.set_titles(Row::new(headers));
+            } else {
+                let headers: Vec<Cell> = headers
+                    .iter()
+                    .map(|h| {
+                        Cell::new(h)
+                            .with_style(Attr::Bold)
+                            .with_style(Attr::ForegroundColor(color::BLUE))
+                    })
+                    .collect();
+                tb.set_titles(Row::new(headers));
+            }
+        };
+        tb
+    }
+
+    fn print_to_console(self) {
+        let mut tb = self.format_table();
 
         for stat in self.stats {
             let mut r = vec![];
-            if self.line_flag {
+            if self.opts.lines {
                 r.push(Cell::new(&stat.lines.to_string()));
             }
-            if self.word_flag {
+            if self.opts.words {
                 r.push(Cell::new(&stat.words.to_string()))
             }
-            if self.char_flag {
+            if self.opts.chars {
                 r.push(Cell::new(&stat.characters.to_string()))
             }
-            if self.color_flag {
+            if self.opts.no_color {
+                r.push(Cell::new(stat.name.to_str().unwrap_or("")));
+            } else {
                 r.push(
                     Cell::new(stat.name.to_str().unwrap_or(""))
                         .with_style(Attr::ForegroundColor(color::GREEN)),
                 );
-            } else {
-                r.push(Cell::new(stat.name.to_str().unwrap_or("")));
             }
             tb.add_row(Row::new(r));
         }
 
         if self.number_of_files > 1 {
             let mut r = vec![];
-            if self.line_flag {
+            if self.opts.lines {
                 r.push(Cell::new(&self.total.lines.to_string()));
             }
-            if self.word_flag {
+            if self.opts.words {
                 r.push(Cell::new(&self.total.words.to_string()));
             }
-            if self.char_flag {
+            if self.opts.chars {
                 r.push(Cell::new(&self.total.characters.to_string()));
             }
-            if self.color_flag {
-                r.push(Cell::new("total").with_style(Attr::ForegroundColor(color::GREEN)));
-            } else {
+            if self.opts.no_color {
                 r.push(Cell::new("total"));
+            } else {
+                r.push(Cell::new("total").with_style(Attr::ForegroundColor(color::GREEN)));
             }
             tb.add_row(Row::new(r));
         }
@@ -197,8 +220,7 @@ impl WcStats {
 
 fn main() {
     let opts = Opts::from_args();
-    let mut wc = WcStats::new();
-    wc.get_flag_from_opts(&opts);
+    let mut wc = WcStats::new(&opts);
 
     for path in opts.files {
         match wc.get_stats(path) {
