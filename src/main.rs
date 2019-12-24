@@ -128,7 +128,7 @@ impl WcStats {
                 }
             }
             Err(_) => Err(format!(
-                "wc: {}: No such file or direcotry",
+                "wc: {}: No such file or directory",
                 file.to_str().unwrap_or("")
             )),
         }
@@ -150,7 +150,7 @@ impl WcStats {
                 headers.push("words");
             }
             if self.opts.chars {
-                headers.push("charactors");
+                headers.push("characters");
             }
             headers.push("file");
             if self.opts.no_color {
